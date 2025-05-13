@@ -1,10 +1,10 @@
 flask==2.3.3
-flask-cors==4.0.1
-deep_translator==1.11.4
+flask-cors==5.0.0
+deep-translator==1.11.4
 groq==0.11.0
-reportlab==4.0.9
-librosa==0.10.1
+reportlab==4.2.2
+librosa==0.10.2
 numpy==1.26.4
-boto3==1.34.0
-gunicorn==22.0.0
-requests==2.32.3
+transformers==4.44.2
+torch==2.4.1+cpu
+ffmpeg-python==0.2.0
