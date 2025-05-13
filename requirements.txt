@@ -8,3 +8,4 @@ numpy==1.26.4
 transformers==4.44.2
 torch==2.4.1+cpu
 ffmpeg-python==0.2.0
+gunicorn==22.0.0
