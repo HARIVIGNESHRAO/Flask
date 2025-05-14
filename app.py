@@ -62,7 +62,7 @@ app.config["UPLOAD_FOLDER"] = UPLOAD_FOLDER
 ALLOWED_EXTENSIONS = {"mp3", "wav", "m4a", "webm"}
 
 try:
-    client = Groq(api_key=" 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")
+    client = Groq(api_key="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")
 except Exception as e:
     logger.error("Failed to initialize Groq client: %s", str(e))
     raise
@@ -158,15 +158,23 @@ def analyze_transcription(transcribed_text, acoustic_features, question, languag
     """
     try:
         logger.info("Sending analysis prompt to Groq API for question: %s", question)
-        chat_completion = client.chat.completions.create(
-            messages=[
-                {"role": "system", "content": "You are an emotion analysis assistant."},
-                {"role": "user", "content": prompt},
-            ],
-            model="llama-3.3-70b-versatile",
-        )
-        response = clean_response(chat_completion.choices[0].message.content)
-        logger.debug("Raw Groq API response: %s", response)
+        try:
+            chat_completion = client.chat.completions.create(
+                messages=[
+                    {"role": "system", "content": "You are an emotion analysis assistant."},
+                    {"role": "user", "content": prompt},
+                ],
+                model="llama-3.3-70b-versatile",
+            )
+            response = clean_response(chat_completion.choices[0].message.content)
+            logger.debug("Raw Groq API response: %s", response)
+        except Exception as api_err:
+            logger.error("Groq API call failed: %s", str(api_err))
+            return json.dumps({
+                "error": f"Groq API call failed: {str(api_err)}",
+                "Language": language_name,
+                "Question": question
+            })
         try:
             json.loads(response)
             return response
@@ -191,7 +199,7 @@ def analyze_transcription(transcribed_text, acoustic_features, question, languag
         })
 
 def combine_analyses(analyses, transcriptions):
-   keyboard_arrow_up    try:
+    try:
         emotions = set()
         tones = set()
         suggestions = set()
@@ -218,16 +226,20 @@ def combine_analyses(analyses, transcriptions):
         Provide a holistic view of the user's emotional state across all responses, highlighting key patterns and offering overarching recommendations.
         """
         logger.info("Sending combined analysis prompt to Groq API")
-        chat_completion = client.chat.completions.create(
-            messages=[
-                {"role": "system", "content": "You are an emotion analysis assistant."},
-                {"role": "user", "content": prompt},
-            ],
-            model="llama-3.3-70b-versatile",
-        )
-        summary = chat_completion.choices[0].message.content.strip()
-        logger.info("Combined analysis summary: %s", summary)
-        return summary
+        try:
+            chat_completion = client.chat.completions.create(
+                messages=[
+                    {"role": "system", "content": "You are an emotion analysis assistant."},
+                    {"role": "user", "content": prompt},
+                ],
+                model="llama-3.3-70b-versatile",
+            )
+            summary = chat_completion.choices[0].message.content.strip()
+            logger.info("Combined analysis summary: %s", summary)
+            return summary
+        except Exception as api_err:
+            logger.error("Groq API call failed in combine_analyses: %s", str(api_err))
+            return f"Error combining analyses: Groq API call failed: {str(api_err)}"
     except Exception as e:
         logger.error("Error combining analyses: %s\n%s", str(e), traceback.format_exc())
         return f"Error combining analyses: {str(e)}"
