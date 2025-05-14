@@ -7,11 +7,6 @@ from groq import Groq
 import json
 from flask_cors import CORS
 from datetime import datetime
-from reportlab.lib.pagesizes import A4
-from reportlab.lib import colors
-from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
-from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer
-from reportlab.lib.enums import TA_CENTER, TA_JUSTIFY
 import librosa
 import numpy as np
 import traceback
@@ -45,13 +40,20 @@ def get_file_lock(filepath):
         file_locks[filepath] = Lock()
     return file_locks[filepath]
 
-# Load Distil-Whisper model
-try:
-    model = pipeline("automatic-speech-recognition", model="distil-whisper/distil-small.en", device=-1)  # CPU
-    logger.info("Distil-Whisper model 'distil-small.en' loaded successfully")
-except Exception as e:
-    logger.error("Failed to load Distil-Whisper model: %s", str(e))
-    raise
+# Initialize Whisper model as None (load on demand)
+model = None
+
+def load_model():
+    """Load the Whisper Tiny model on demand."""
+    global model
+    if model is None:
+        try:
+            model = pipeline("automatic-speech-recognition", model="openai/whisper-tiny.en", device=-1)
+            logger.info("Whisper model 'openai/whisper-tiny.en' loaded successfully")
+        except Exception as e:
+            logger.error("Failed to load Whisper model: %s", str(e))
+            raise
+    return model
 
 translator = GoogleTranslator(source='auto', target='en')
 UPLOAD_FOLDER = "Uploads"
@@ -88,13 +90,13 @@ def clean_response(response):
     return response
 
 def reload_model():
-    """Reload the Distil-Whisper model and update the module-level model variable."""
+    """Reload the Whisper Tiny model and update the module-level model variable."""
     global model
     try:
-        model = pipeline("automatic-speech-recognition", model="distil-whisper/distil-small.en", device=-1)
-        logger.info("Distil-Whisper model reloaded successfully")
+        model = pipeline("automatic-speech-recognition", model="openai/whisper-tiny.en", device=-1)
+        logger.info("Whisper model reloaded successfully")
     except Exception as e:
-        logger.error("Failed to reload Distil-Whisper model: %s", str(e))
+        logger.error("Failed to reload Whisper model: %s", str(e))
         raise
 
 def extract_acoustic_features(filepath):
@@ -158,13 +160,33 @@ def analyze_transcription(transcribed_text, acoustic_features, question, languag
     """
     try:
         logger.info("Sending analysis prompt to Groq API for question: %s", question)
+        # Test API key with a small request
+        try:
+            test_response = client.chat.completions.create(
+                messages=[{"role": "user", "content": "Test"}],
+                model="llama3-70b-8192",
+            )
+            logger.info("Groq API key test successful")
+        except Exception as test_err:
+            logger.error("Groq API key test failed: %s", str(test_err))
+            return json.dumps({
+                "error": f"Groq API key test failed: {str(test_err)}",
+                "Language": language_name,
+                "Question": question
+            })
+        
+        # Truncate prompt if too long (e.g., > 8000 characters, assuming ~2 chars/token)
+        if len(prompt) > 8000:
+            prompt = prompt[:8000] + "... [truncated]"
+            logger.warning("Prompt truncated to 8000 characters to avoid token limit")
+
         try:
             chat_completion = client.chat.completions.create(
                 messages=[
                     {"role": "system", "content": "You are an emotion analysis assistant."},
                     {"role": "user", "content": prompt},
                 ],
-                model="llama-3.3-70b-versatile",
+                model="llama3-70b-8192",  # Use a known model
             )
             response = clean_response(chat_completion.choices[0].message.content)
             logger.debug("Raw Groq API response: %s", response)
@@ -227,12 +249,17 @@ def combine_analyses(analyses, transcriptions):
         """
         logger.info("Sending combined analysis prompt to Groq API")
         try:
+            # Truncate prompt if too long
+            if len(prompt) > 8000:
+                prompt = prompt[:8000] + "... [truncated]"
+                logger.warning("Prompt truncated to 8000 characters in combine_analyses")
+            
             chat_completion = client.chat.completions.create(
                 messages=[
                     {"role": "system", "content": "You are an emotion analysis assistant."},
                     {"role": "user", "content": prompt},
                 ],
-                model="llama-3.3-70b-versatile",
+                model="llama3-70b-8192",
             )
             summary = chat_completion.choices[0].message.content.strip()
             logger.info("Combined analysis summary: %s", summary)
@@ -243,107 +270,6 @@ def combine_analyses(analyses, transcriptions):
     except Exception as e:
         logger.error("Error combining analyses: %s\n%s", str(e), traceback.format_exc())
         return f"Error combining analyses: {str(e)}"
-
-def draw_border(canvas, doc):
-    width, height = A4
-    margin = 20
-    canvas.setLineWidth(2)
-    canvas.setStrokeColor(colors.darkblue)
-    canvas.rect(margin, margin, width - 2 * margin, height - 2 * margin)
-
-def generate_pdf(api_response, filename=None):
-    # Parse API response
-    data = json.loads(api_response)
-    individual_analyses = data.get('individual_analyses', [])
-    combined_analysis = data.get('combined_analysis', 'No combined analysis provided.')
-    username = data.get('username', 'Unknown')
-
-    # Set default filename with username
-    if filename is None:
-        filename = f"mental_health_report_{username}.pdf"
-
-    # Initialize PDF document
-    doc = SimpleDocTemplate(filename, pagesize=A4)
-    elements = []
-    styles = getSampleStyleSheet()
-
-    # Define custom styles
-    title_style = ParagraphStyle(
-        "TitleStyle",
-        parent=styles['Title'],
-        alignment=TA_CENTER,
-        fontSize=22,
-        spaceAfter=12
-    )
-    normal_style = ParagraphStyle(
-        "NormalStyle",
-        parent=styles['Normal'],
-        fontSize=10,
-        spaceAfter=6
-    )
-    justified_style = ParagraphStyle(
-        "JustifiedStyle",
-        parent=styles['Normal'],
-        alignment=TA_JUSTIFY,
-        fontSize=10,
-        spaceAfter=12
-    )
-
-    # Add title and metadata
-    elements.append(Paragraph(f"Mental Health Analysis Report for {username}", title_style))
-    elements.append(Spacer(1, 12))
-    elements.append(Paragraph(f"Date: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}", normal_style))
-    elements.append(Spacer(1, 20))
-
-    # Add individual analyses
-    for idx, analysis in enumerate(individual_analyses, 1):
-        elements.append(Paragraph(f"Analysis {idx}", styles['Heading2']))
-        elements.append(Spacer(1, 12))
-
-        # Emotions
-        elements.append(Paragraph("Inferred Emotions:", styles['Heading3']))
-        emotions = analysis.get('Emotions', [])
-        if emotions:
-            for emotion in emotions:
-                elements.append(Paragraph(f"• {emotion}", normal_style))
-        else:
-            elements.append(Paragraph("No emotions detected.", normal_style))
-        elements.append(Spacer(1, 12))
-
-        # Tones
-        elements.append(Paragraph("Detected Tones:", styles['Heading3']))
-        tones = analysis.get('Tones', [])
-        if tones:
-            for tone in tones:
-                elements.append(Paragraph(f"• {tone}", normal_style))
-        else:
-            elements.append(Paragraph("No tones detected.", normal_style))
-        elements.append(Spacer(1, 12))
-
-        # Reasons
-        elements.append(Paragraph("Reasons Behind These Emotions:", styles['Heading3']))
-        reasons = analysis.get('Reasons', 'No reasons provided.')
-        elements.append(Paragraph(reasons, justified_style))
-        elements.append(Spacer(1, 12))
-
-        # Suggestions
-        elements.append(Paragraph("Emotional Support Suggestions:", styles['Heading3']))
-        suggestions = analysis.get('Suggestions', [])
-        if suggestions:
-            for suggestion in suggestions:
-                elements.append(Paragraph(f"✔ {suggestion}", normal_style))
-        else:
-            elements.append(Paragraph("No suggestions provided.", normal_style))
-        elements.append(Spacer(1, 20))
-
-    # Add combined analysis
-    elements.append(Paragraph("Combined Analysis Summary:", styles['Heading2']))
-    elements.append(Paragraph(combined_analysis, justified_style))
-    elements.append(Spacer(1, 20))
-
-    # Build PDF
-    doc.build(elements, onFirstPage=draw_border, onLaterPages=draw_border)
-    return filename
 
 @app.route("/transcribe_audio", methods=["POST"])
 def transcribe_audio():
@@ -373,6 +299,7 @@ def transcribe_audio():
         try:
             app.logger.info("Transcribing audio...")
             with model_lock:
+                load_model()  # Load model on demand
                 try:
                     transcription = model(filepath, language=language)
                     transcribed_text = transcription["text"]
@@ -430,6 +357,7 @@ def analyze_audio():
         try:
             app.logger.info("Transcribing audio...")
             with model_lock:
+                load_model()  # Load model on demand
                 try:
                     transcription = model(filepath, language=language)
                     transcribed_text = transcription["text"]
@@ -529,6 +457,7 @@ def analyze_multiple_audio():
                 try:
                     app.logger.info("Transcribing file %s", filepath)
                     with model_lock:
+                        load_model()  # Load model on demand
                         try:
                             transcription = model(filepath, language=language)
                             transcribed_text = transcription["text"]
@@ -584,38 +513,6 @@ def analyze_multiple_audio():
                     app.logger.info("Deleted file: %s", filepath)
                 except Exception as e:
                     app.logger.error("Failed to delete %s: %s", filepath, str(e))
-
-@app.route("/generate_pdf", methods=["POST"])
-def generate_pdf_route():
-    request_id = str(uuid.uuid4())
-    app.logger = RequestLoggerAdapter(logging.getLogger(), {"request_id": request_id})
-    try:
-        data = request.get_json()
-        app.logger.info("Received payload: %s", json.dumps(data, indent=2))
-
-        if not data or "individual_analyses" not in data or "combined_analysis" not in data:
-            error_msg = "Individual analyses and combined analysis are required"
-            app.logger.error(error_msg)
-            return jsonify({"error": error_msg, "error_id": request_id}), 400
-
-        # Validate data types
-        individual_analyses = data.get("individual_analyses")
-        combined_analysis = data.get("combined_analysis")
-        username = data.get("username", "Unknown")
-
-        if not isinstance(individual_analyses, list) or not combined_analysis:
-            error_msg = "Invalid data format: individual_analyses must be a list and combined_analysis must be non-empty"
-            app.logger.error(error_msg)
-            return jsonify({"error": error_msg, "error_id": request_id}), 400
-
-        # Generate PDF
-        pdf_filename = generate_pdf(json.dumps(data))
-        app.logger.info("Generated PDF: %s", pdf_filename)
-        return send_file(pdf_filename, as_attachment=True)
-    except Exception as e:
-        error_msg = f"PDF generation error: {str(e)}\n{traceback.format_exc()}"
-        app.logger.error(error_msg)
-        return jsonify({"error": error_msg, "error_id": request_id}), 500
 
 @app.route('/translate', methods=['POST'])
 def translate_text():
