@@ -1,11 +1,10 @@
 flask==2.3.3
 transformers==4.45.2
-torch==2.4.1
+torch==2.4.1 --no-binary torch
 soundfile==0.12.1
 groq==0.11.0
 librosa==0.10.2
 numpy==1.26.4
-reportlab==4.2.2
 flask-cors==5.0.0
 werkzeug==3.0.4
 deep_translator==1.11.4
