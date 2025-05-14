@@ -1,11 +1,12 @@
-flask==3.0.3
-flask-cors==5.0.0
-deep-translator==1.11.4
-transformers==4.44.2
+flask==2.3.3
+transformers==4.45.2
 torch==2.4.1
+soundfile==0.12.1
+groq==0.11.0
 librosa==0.10.2
 numpy==1.26.4
 reportlab==4.2.2
-groq==0.11.0
+flask-cors==5.0.0
 werkzeug==3.0.4
+deep_translator==1.11.4
 gunicorn==23.0.0
