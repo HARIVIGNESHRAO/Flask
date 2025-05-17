@@ -47,7 +47,7 @@ def get_file_lock(filepath):
 
 # Load Whisper model
 try:
-    model = whisper.load_model("tiny")
+    model = whisper.load_model("small")
     logger.info("Whisper model 'small' loaded successfully with %s vocab size", model.dims.n_vocab)
 except Exception as e:
     logger.error("Failed to load Whisper model: %s", str(e))
@@ -62,7 +62,7 @@ app.config["UPLOAD_FOLDER"] = UPLOAD_FOLDER
 ALLOWED_EXTENSIONS = {"mp3", "wav", "m4a", "webm"}
 
 try:
-    client = Groq(api_key="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")
+    client = Groq(api_key="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")
 except Exception as e:
     logger.error("Failed to initialize Groq client: %s", str(e))
     raise
@@ -74,7 +74,8 @@ SUPPORTED_LANGUAGES = {
     "de": "German",
     "zh": "Chinese",
     "te": "Telugu",
-    "hi": "Hindi"
+    "hi": "Hindi",
+    "kn":"Kannada"
 }
 
 def allowed_file(filename):
